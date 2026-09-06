@@ -100,6 +100,102 @@ thread_init (void)
   initial_thread->tid = allocate_tid ();
 }
 
+
+/* Comarator function: Sorts threads in descending priority order (Highest priority first) - lab1 t2*/
+bool
+thread_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
+{
+  struct thread *ta = list_entry (a, struct thread, elem);
+  struct thread *tb = list_entry (b, struct thread, elem);
+  return ta->priority > tb->priority;
+}
+
+void 
+thread_yield_if_preempted (void) 
+{
+  if (intr_context ())
+  return;
+
+  enum intr_level old_level = intr_disable ();
+  if ( !list_empty (&ready_list)) 
+  {
+    struct thread *top = list_entry (list_front (&ready_list), struct thread, elem);
+    if (top-> priority > thread_current ()->priority)
+    thread_yield();
+  }
+  intr_set_level (old_level);
+}
+
+
+/* Handle nested priority donation up to a maximum depth of 8 */
+void 
+thread_donate_priority (struct thread *t) 
+{
+  int depth = 0;
+  struct thread *cur = t;
+  struct lock *l = cur->wait_on_lock;
+
+  /* Traverse the nested chain of lock dependencies */
+  while (l != NULL && depth < 8) 
+  {
+    if (l->holder == NULL)
+      break;
+
+    /* Recalculate holder's effective priority considering all its active donations */
+    thread_update_priority (l->holder);
+
+    /* Advance to the next lock in the dependency chain */
+    cur = l->holder;
+    l = cur->wait_on_lock;
+    depth++;
+  }
+}
+
+
+/* Remove donations associated with a lock when it is released */
+void
+thread_remove_donation (struct lock *lock)
+{
+ struct thread *cur = thread_current ();
+  struct list_elem *e = list_begin (&cur->donations);
+
+  /* Iterate through the thread's donations list and remove matching lock entries */
+  while (e != list_end (&cur->donations)) 
+  {
+    struct thread *t = list_entry (e, struct thread, donation_elem);
+    if (t->wait_on_lock == lock)
+      e = list_remove (e);
+    else
+      e = list_next (e);
+  }
+}
+
+
+void 
+thread_update_priority (struct thread *t)
+{
+  enum intr_level old_level = intr_disable ();
+
+  int max_priority = t->base_priority;
+
+  /* Find the highest priority among all donated threads */
+  if (!list_empty (&t->donations))
+  {
+    struct list_elem *e;
+    for (e = list_begin (&t->donations); e != list_end (&t->donations); e = list_next (e))
+      {
+        struct thread *donor = list_entry (e, struct thread, donation_elem);
+        if (donor->priority > max_priority)
+          max_priority = donor->priority;
+      }
+  }
+
+  t->priority = max_priority;
+  intr_set_level (old_level);
+
+}
+//---------------------------
+
 /* Starts preemptive thread scheduling by enabling interrupts.
    Also creates the idle thread. */
 void
@@ -172,6 +268,10 @@ thread_create (const char *name, int priority,
   struct switch_threads_frame *sf;
   tid_t tid;
 
+  //----------------lab1 t2------------------
+  ASSERT (name != NULL);
+  ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
+  //-----------------------------------------
   ASSERT (function != NULL);
 
   /* Allocate thread. */
@@ -200,6 +300,9 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+
+  /* Preemption check: Yield CPU if the newly created thread has higher priority- lab1 t2*/
+  thread_yield_if_preempted ();
 
   return tid;
 }
@@ -237,7 +340,11 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  //list_push_back (&ready_list, &t->elem);
+  
+  //-----------lab1 t2----------------
+  list_insert_ordered (&ready_list, &t->elem, thread_compare_priority, NULL);
+  //-------------------------------
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -308,7 +415,9 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    //list_push_back (&ready_list, &cur->elem);
+    /* Insert current thread into ready_list in sorted priority order */
+    list_insert_ordered (&ready_list, &cur->elem, thread_compare_priority, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -331,19 +440,40 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Set thread priority and yield if preempted - lab1 t2 */
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  //thread_current ()->priority = new_priority;
+
+  enum intr_level old_level = intr_disable ();
+
+  struct thread *cur = thread_current ();
+  cur->base_priority = new_priority;
+
+  /* Recalculate priority taking donations into account*/
+  thread_update_priority (cur);
+
+  /* Yield immediately if current priority dropped below highest ready thread */
+  thread_yield_if_preempted ();
+
+  intr_set_level (old_level);
 }
 
-/* Returns the current thread's priority. */
+//------------------------------------
+
+/* Returns effective priority.- lab1 t2 */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+ // return thread_current ()->priority;
+
+ enum intr_level old_level = intr_disable();
+ int priority = thread_current ()->priority;
+ intr_set_level (old_level);
+ return priority;
 }
+//-----------------------------
 
 /* Sets the current thread's nice value to NICE. */
 void
@@ -463,6 +593,14 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+
+  //-------------------------
+  /* Initialize priority donation attributes */
+
+  t->base_priority = priority;
+  list_init (&t->donations);
+  t->wait_on_lock = NULL;
+
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

@@ -5,6 +5,9 @@
 #include <list.h>
 #include <stdint.h>
 
+/* Forward declaration for struct lock */
+struct lock;
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -98,10 +101,26 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
 #endif
 
+   /* Priority Donation fields-------- */
+   int base_priority; /* Base priority before donation */
+   struct list donations; /* List of threads donating priority to this thread*/
+   struct list_elem donation_elem; /* List element for being in another thread's donations list*/
+   struct lock *wait_on_lock; /* Lock that this thread is waiting for */
+//---------------------
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
     int64_t ticks_blocked;              /* Absolute tick count when thread should wakeup <lab1-t1>*/
   };
+
+
+  /* Helper comparator functions declaration */
+  bool thread_compare_priority ( const struct list_elem *a, const struct list_elem *b, void *aux);
+  void thread_donate_priority (struct thread *t);
+  void thread_remove_donation (struct lock *lock);
+  void thread_update_priority (struct thread *t);
+  void thread_yield_if_preempted (void);
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
