@@ -96,6 +96,9 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    int nice;                           /* Nice value (-20 to 20) */
+    int recent_cpu;                     /*  recent_cpu value in Fixed-point format */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -157,5 +160,12 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void thread_mlfqs_update_priority (struct thread *t);
+void thread_mlfqs_update_recent_cpu (struct thread *t);
+void thread_mlfqs_update_load_avg (void);
+void thread_mlfqs_increment_recent_cpu (void);
+void thread_mlfqs_update_all_priorities (void);
+void thread_mlfqs_update_all_recent_cpu (void);
 
 #endif /* threads/thread.h */

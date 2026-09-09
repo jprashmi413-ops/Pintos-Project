@@ -204,27 +204,45 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
-/* Timer interrupt handler. */
+/* Timer interrupt handler */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+
+  if (thread_mlfqs)
+    {
+      /* 1. Increment current running thread's recent_cpu every timer tick */
+      thread_mlfqs_increment_recent_cpu ();
+
+      /* 2. Every 1 second (TIMER_FREQ ticks): update load_avg and all threads' recent_cpu */
+      if (ticks % TIMER_FREQ == 0)
+        {
+          thread_mlfqs_update_load_avg ();
+          thread_mlfqs_update_all_recent_cpu ();
+        }
+
+      /* 3. Every 4 ticks: recalculate priority for all threads */
+      if (ticks % 4 == 0)
+        {
+          thread_mlfqs_update_all_priorities ();
+        }
+    }
+
   thread_tick ();
 
-  /* Interrupt the sleep_list to unblock expired threads*/
+  /* Unblock sleeping threads whose wait time has expired */
   struct list_elem *e = list_begin (&sleep_list);
   while (e != list_end (&sleep_list)) 
-  {
-    struct thread *t = list_entry (e, struct thread, elem);
+    {
+      struct thread *t = list_entry (e, struct thread, elem);
 
-    /* Because sleep list is sorted, stop checking if head thread hasn't reached wakeup time */
-    if (ticks < t->ticks_blocked)
-      break;
+      if (ticks < t->ticks_blocked)
+        break;
 
-    /* Remove thread from sleep_list and move it to ready list */
-    e = list_remove (e);
-    thread_unblock (t);
-  }
+      e = list_remove (e);
+      thread_unblock (t);
+    }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

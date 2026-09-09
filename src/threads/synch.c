@@ -207,32 +207,30 @@ lock_init (struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
-  struct thread *cur = thread_current ();
-
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  /* Disable interrupts to safely update lock donation structures */
-  enum intr_level old_level = intr_disable ();
+  struct thread *cur = thread_current ();
 
-  /* If the lock is already held, register as a waiter/donor */
-  if (lock->holder != NULL) 
-  {
-    cur->wait_on_lock = lock;
-    /* Add current thread to the lock holder's donation list */
-    list_push_back (&lock->holder->donations, &cur->donation_elem);
-    /* Propagate priority donation through potential lock dependency chain */
-    thread_donate_priority (cur);
-  }
+  if (!thread_mlfqs)
+    {
+      if (lock->holder != NULL)
+        {
+          cur->wait_on_lock = lock;
+          list_push_back (&lock->holder->donations, &cur->donation_elem);
+          thread_donate_priority (cur);
+        }
+    }
 
   sema_down (&lock->semaphore);
 
-  /* Lock acquired successfully: reset wait status and assign owner */
-  cur->wait_on_lock = NULL;
-  lock->holder = cur;
+  if (!thread_mlfqs)
+    {
+      cur->wait_on_lock = NULL;
+    }
 
-  intr_set_level (old_level);
+  lock->holder = cur;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -268,16 +266,21 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  enum intr_level old_level = intr_disable ();
-
-  /* Remove all donations associated with this lock and restore base/donor priority */
-  thread_remove_donation (lock);
-  thread_update_priority (thread_current ());
-
   lock->holder = NULL;
+
+  if (!thread_mlfqs)
+    {
+      thread_remove_donation (lock);
+      thread_update_priority (thread_current ());
+    }
+
   sema_up (&lock->semaphore);
 
-  intr_set_level (old_level);
+  /* Yield if priority was lowered or another thread with higher priority became ready */
+  if (!thread_mlfqs)
+    {
+      thread_yield_if_preempted ();
+    }
 }
 
 /* Returns true if the current thread holds LOCK, false
