@@ -106,6 +106,33 @@ sema_try_down (struct semaphore *sema)
    and wakes up one thread of those waiting for SEMA, if any.
 
    This function may be called from an interrupt handler. */
+// void
+// sema_up (struct semaphore *sema) 
+// {
+//   enum intr_level old_level;
+
+//   ASSERT (sema != NULL);
+
+//   old_level = intr_disable ();
+//   if (!list_empty (&sema->waiters)) 
+//   {
+//     /* Ensure waiters list is sorted so highest priority thread is popped */
+//     list_sort (&sema->waiters, thread_compare_priority, NULL);
+//     struct thread *t = list_entry (list_pop_front (&sema->waiters), struct thread, elem);
+//     thread_unblock (t);
+//   }
+
+//   sema->value++;
+
+//   thread_yield_if_preempted ();
+//   intr_set_level (old_level);
+
+//   //   thread_unblock (list_entry (list_pop_front (&sema->waiters),
+//   //                               struct thread, elem));
+//   // sema->value++;
+//   // intr_set_level (old_level);
+// }
+
 void
 sema_up (struct semaphore *sema) 
 {
@@ -124,13 +151,11 @@ sema_up (struct semaphore *sema)
 
   sema->value++;
 
-  thread_yield_if_preempted ();
+  /* Restore interrupt level BEFORE checking preemption to prevent corrupting output */
   intr_set_level (old_level);
 
-  //   thread_unblock (list_entry (list_pop_front (&sema->waiters),
-  //                               struct thread, elem));
-  // sema->value++;
-  // intr_set_level (old_level);
+  /* Yield if preemption is needed */
+  thread_yield_if_preempted ();
 }
 
 static void sema_test_helper (void *sema_);
@@ -204,6 +229,35 @@ lock_init (struct lock *lock)
    we need to sleep. */
 
    /* Acquire lock with priority donation handling */
+// void
+// lock_acquire (struct lock *lock)
+// {
+//   ASSERT (lock != NULL);
+//   ASSERT (!intr_context ());
+//   ASSERT (!lock_held_by_current_thread (lock));
+
+//   struct thread *cur = thread_current ();
+
+//   if (!thread_mlfqs)
+//     {
+//       if (lock->holder != NULL)
+//         {
+//           cur->wait_on_lock = lock;
+//           list_push_back (&lock->holder->donations, &cur->donation_elem);
+//           thread_donate_priority (cur);
+//         }
+//     }
+
+//   sema_down (&lock->semaphore);
+
+//   if (!thread_mlfqs)
+//     {
+//       cur->wait_on_lock = NULL;
+//     }
+
+//   lock->holder = cur;
+// }
+
 void
 lock_acquire (struct lock *lock)
 {
@@ -232,6 +286,8 @@ lock_acquire (struct lock *lock)
 
   lock->holder = cur;
 }
+
+
 
 /* Tries to acquires LOCK and returns true if successful or false
    on failure.  The lock must not already be held by the current

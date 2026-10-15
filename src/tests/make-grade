@@ -10,6 +10,7 @@ my ($src_dir, $results_file, $grading_file) = @ARGV;
 open (RESULTS, '<', $results_file) || die "$results_file: open: $!\n";
 my (%verdicts, %verdict_counts);
 while (<RESULTS>) {
+	s/\r?\n\z//;
     my ($verdict, $test) = /^(pass|FAIL) (.*)$/ or die;
     $verdicts{$test} = $verdict eq 'pass';
 }
@@ -23,6 +24,7 @@ my ($pct_actual, $pct_possible) = (0, 0);
 my (@items);
 open (GRADING, '<', $grading_file) || die "$grading_file: open: $!\n";
 while (<GRADING>) {
+	s/\r?\n\z//;
     s/#.*//;
     next if /^\s*$/;
     my ($max_pct, $rubric_suffix) = /^\s*(\d+(?:\.\d+)?)%\t(.*)/ or die;
@@ -32,7 +34,7 @@ while (<GRADING>) {
 
     # Rubric file must begin with title line.
     my $title = <RUBRIC>;
-    chomp $title;
+	$title =~ s/\r?\n\z//;
     $title =~ s/:$// or die;
     $title .= " ($rubric_suffix):";
     push (@rubrics, $title);
@@ -41,7 +43,7 @@ while (<GRADING>) {
     my ($cnt, $passed) = (0, 0);
     my ($was_score) = 0;
     while (<RUBRIC>) {
-	chomp;
+	s/\r?\n\z//;
 	push (@rubrics, "\t$_"), next if /^-/;
 	push (@rubrics, ""), next if /^\s*$/;
 	my ($poss, $name) = /^(\d+)\t(.*)$/ or die;

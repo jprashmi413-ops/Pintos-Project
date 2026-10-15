@@ -137,25 +137,48 @@ thread_yield_if_preempted (void)
 
 
 /* Handle nested priority donation up to a maximum depth of 8 */
+// void 
+// thread_donate_priority (struct thread *t) 
+// {
+//   int depth = 0;
+//   struct thread *cur = t;
+//   struct lock *l = cur->wait_on_lock;
+
+//   /* Traverse the nested chain of lock dependencies */
+//   while (l != NULL && depth < 8) 
+//   {
+//     if (l->holder == NULL)
+//       break;
+
+//     /* Recalculate holder's effective priority considering all its active donations */
+//     thread_update_priority (l->holder);
+
+//     /* Advance to the next lock in the dependency chain */
+//     cur = l->holder;
+//     l = cur->wait_on_lock;
+//     depth++;
+//   }
+// }
+
+/* Handle nested priority donation up to a maximum depth of 8 */
 void 
 thread_donate_priority (struct thread *t) 
 {
   int depth = 0;
   struct thread *cur = t;
-  struct lock *l = cur->wait_on_lock;
 
   /* Traverse the nested chain of lock dependencies */
-  while (l != NULL && depth < 8) 
+  while (cur->wait_on_lock != NULL && depth < 8) 
   {
+    struct lock *l = cur->wait_on_lock;
     if (l->holder == NULL)
       break;
 
-    /* Recalculate holder's effective priority considering all its active donations */
-    thread_update_priority (l->holder);
+    /* If donor thread has higher priority, raise lock holder's priority directly */
+    if (l->holder->priority < cur->priority)
+      l->holder->priority = cur->priority;
 
-    /* Advance to the next lock in the dependency chain */
     cur = l->holder;
-    l = cur->wait_on_lock;
     depth++;
   }
 }
